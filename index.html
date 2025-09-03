@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TaskManager с WebRTC синхронизацией</title>
+    <title>TaskManager с экспорт/импорт</title>
     <style>
         * {
             margin: 0;
@@ -61,34 +61,18 @@
             min-width: 120px;
         }
 
-        .create-room {
+        .export-button {
             background-color: #27ae60;
             color: white;
         }
 
-        .join-room {
+        .import-button {
             background-color: #3498db;
             color: white;
         }
 
-        .disconnect {
-            background-color: #e74c3c;
-            color: white;
-        }
-
-        .room-info {
-            background-color: #f8f9fa;
-            padding: 15px;
-            border-radius: 5px;
-            margin-bottom: 15px;
-        }
-
-        .room-id {
-            font-family: monospace;
-            background-color: #e9ecef;
-            padding: 5px 10px;
-            border-radius: 3px;
-            word-break: break-all;
+        .file-input {
+            display: none;
         }
 
         .status {
@@ -98,22 +82,22 @@
             text-align: center;
         }
 
-        .status.connected {
+        .status.success {
             background-color: #d4edda;
             color: #155724;
             border: 1px solid #c3e6cb;
         }
 
-        .status.disconnected {
+        .status.error {
             background-color: #f8d7da;
             color: #721c24;
             border: 1px solid #f5c6cb;
         }
 
-        .status.syncing {
-            background-color: #fff3cd;
-            color: #856404;
-            border: 1px solid #ffeaa7;
+        .status.info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
         }
 
         /* Tab Bar */
@@ -530,18 +514,14 @@
 
         <!-- Sync Panel -->
         <div class="sync-panel">
-            <h3>WebRTC Синхронизация</h3>
+            <h3>Экспорт/Импорт данных</h3>
             <div class="sync-controls">
-                <button class="sync-button create-room" id="create-room">Создать комнату</button>
-                <button class="sync-button join-room" id="join-room">Присоединиться</button>
-                <button class="sync-button disconnect" id="disconnect" disabled>Отключиться</button>
+                <button class="sync-button export-button" id="export-data">Экспорт данных</button>
+                <button class="sync-button import-button" id="import-data">Импорт данных</button>
+                <input type="file" id="file-input" class="file-input" accept=".json">
             </div>
-            <div class="room-info" id="room-info" style="display: none;">
-                <p>Код комнаты: <span class="room-id" id="room-id"></span></p>
-                <p>Подключенные устройства: <span id="peer-count">0</span></p>
-            </div>
-            <div class="status disconnected" id="sync-status">
-                Отключено от синхронизации
+            <div class="status info" id="sync-status">
+                Используйте экспорт для сохранения данных и импорт для восстановления
             </div>
         </div>
 
@@ -573,18 +553,6 @@
             <div class="form-container">
                 <input type="text" class="form-input" id="new-task-title" placeholder="Введите название задачи">
                 <button class="add-button" id="add-task">Добавить</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Join Room Modal -->
-    <div class="modal hidden" id="join-modal">
-        <div class="modal-content">
-            <h3 class="modal-title">Присоединиться к комнате</h3>
-            <input type="text" class="modal-input" id="room-code" placeholder="Введите код комнаты">
-            <div class="modal-buttons">
-                <button class="modal-button modal-cancel" id="cancel-join">Отмена</button>
-                <button class="modal-button modal-ok" id="confirm-join">Присоединиться</button>
             </div>
         </div>
     </div>
@@ -739,208 +707,57 @@
                     request.onerror = () => reject(request.error);
                 });
             }
-        }
 
-        // WebRTC Sync Class
-        class WebRTCSync {
-            constructor() {
-                this.peerConnection = null;
-                this.dataChannel = null;
-                this.peerId = this.generatePeerId();
-                this.roomId = null;
-                this.peers = new Map();
-                this.isConnected = false;
-                this.onDataReceived = null;
-                this.onConnectionChange = null;
+            // Export/Import methods
+            async exportData() {
+                const groups = await this.getGroups();
+                const tasks = await this.getTasks();
+                
+                return {
+                    version: '1.0',
+                    exportDate: new Date().toISOString(),
+                    groups,
+                    tasks
+                };
             }
 
-            generatePeerId() {
-                return 'peer_' + Math.random().toString(36).substr(2, 9);
+            async importData(data) {
+                if (!data || !data.groups || !data.tasks) {
+                    throw new Error('Неверный формат данных');
+                }
+
+                // Clear existing data
+                await this.clearAllData();
+                
+                // Import groups
+                for (const group of data.groups) {
+                    await this.addGroup(group);
+                }
+                
+                // Import tasks
+                for (const task of data.tasks) {
+                    await this.addTask(task);
+                }
+                
+                return true;
             }
 
-            generateRoomId() {
-                return Math.random().toString(36).substr(2, 6).toUpperCase();
-            }
-
-            async createRoom() {
-                this.roomId = this.generateRoomId();
-                await this.setupPeerConnection(true);
-                return this.roomId;
-            }
-
-            async joinRoom(roomId) {
-                this.roomId = roomId.toUpperCase();
-                await this.setupPeerConnection(false);
-            }
-
-            async setupPeerConnection(isInitiator) {
-                // Simple signaling using localStorage for demo purposes
-                // In production, you would use a proper signaling server
-                this.peerConnection = new RTCPeerConnection({
-                    iceServers: [
-                        { urls: 'stun:stun.l.google.com:19302' },
-                        { urls: 'stun:stun1.l.google.com:19302' }
-                    ]
-                });
-
-                if (isInitiator) {
-                    this.dataChannel = this.peerConnection.createDataChannel('tasks', {
-                        ordered: true
-                    });
-                    this.setupDataChannel(this.dataChannel);
-                } else {
-                    this.peerConnection.ondatachannel = (event) => {
-                        this.dataChannel = event.channel;
-                        this.setupDataChannel(this.dataChannel);
+            async clearAllData() {
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction(['groups', 'tasks'], 'readwrite');
+                    const groupsStore = transaction.objectStore('groups');
+                    const tasksStore = transaction.objectStore('tasks');
+                    
+                    const clearGroups = groupsStore.clear();
+                    const clearTasks = tasksStore.clear();
+                    
+                    clearGroups.onsuccess = () => {
+                        clearTasks.onsuccess = () => resolve();
+                        clearTasks.onerror = () => reject(clearTasks.error);
                     };
-                }
-
-                this.peerConnection.onicecandidate = (event) => {
-                    if (event.candidate) {
-                        this.sendSignal({
-                            type: 'ice-candidate',
-                            candidate: event.candidate,
-                            from: this.peerId
-                        });
-                    }
-                };
-
-                this.peerConnection.onconnectionstatechange = () => {
-                    console.log('Connection state:', this.peerConnection.connectionState);
-                    if (this.peerConnection.connectionState === 'connected') {
-                        this.isConnected = true;
-                        if (this.onConnectionChange) {
-                            this.onConnectionChange(true);
-                        }
-                    } else if (this.peerConnection.connectionState === 'disconnected' || 
-                               this.peerConnection.connectionState === 'failed') {
-                        this.isConnected = false;
-                        if (this.onConnectionChange) {
-                            this.onConnectionChange(false);
-                        }
-                    }
-                };
-
-                // Start signaling
-                this.setupSignaling();
-
-                if (isInitiator) {
-                    const offer = await this.peerConnection.createOffer();
-                    await this.peerConnection.setLocalDescription(offer);
-                    this.sendSignal({
-                        type: 'offer',
-                        offer: offer,
-                        from: this.peerId
-                    });
-                }
-            }
-
-            setupDataChannel(channel) {
-                channel.onopen = () => {
-                    console.log('Data channel opened');
-                    this.isConnected = true;
-                    if (this.onConnectionChange) {
-                        this.onConnectionChange(true);
-                    }
-                };
-
-                channel.onmessage = (event) => {
-                    try {
-                        const data = JSON.parse(event.data);
-                        if (this.onDataReceived) {
-                            this.onDataReceived(data);
-                        }
-                    } catch (e) {
-                        console.error('Error parsing message:', e);
-                    }
-                };
-
-                channel.onclose = () => {
-                    console.log('Data channel closed');
-                    this.isConnected = false;
-                    if (this.onConnectionChange) {
-                        this.onConnectionChange(false);
-                    }
-                };
-            }
-
-            setupSignaling() {
-                // Listen for signaling messages
-                const signalingKey = `taskmanager_signaling_${this.roomId}`;
-                const handleStorageChange = (e) => {
-                    if (e.key === signalingKey && e.newValue) {
-                        try {
-                            const message = JSON.parse(e.newValue);
-                            if (message.to === this.peerId || !message.to) {
-                                this.handleSignal(message);
-                            }
-                        } catch (e) {
-                            console.error('Error parsing signal:', e);
-                        }
-                    }
-                };
-
-                window.addEventListener('storage', handleStorageChange);
-            }
-
-            sendSignal(message) {
-                const signalingKey = `taskmanager_signaling_${this.roomId}`;
-                const signal = {
-                    ...message,
-                    roomId: this.roomId,
-                    timestamp: Date.now()
-                };
-                localStorage.setItem(signalingKey, JSON.stringify(signal));
-            }
-
-            async handleSignal(message) {
-                switch (message.type) {
-                    case 'offer':
-                        if (this.peerConnection.signalingState === 'stable') {
-                            await this.peerConnection.setRemoteDescription(new RTCSessionDescription(message.offer));
-                            const answer = await this.peerConnection.createAnswer();
-                            await this.peerConnection.setLocalDescription(answer);
-                            this.sendSignal({
-                                type: 'answer',
-                                answer: answer,
-                                from: this.peerId,
-                                to: message.from
-                            });
-                        }
-                        break;
-                    case 'answer':
-                        await this.peerConnection.setRemoteDescription(new RTCSessionDescription(message.answer));
-                        break;
-                    case 'ice-candidate':
-                        try {
-                            await this.peerConnection.addIceCandidate(new RTCIceCandidate(message.candidate));
-                        } catch (e) {
-                            console.error('Error adding ICE candidate:', e);
-                        }
-                        break;
-                }
-            }
-
-            sendData(data) {
-                if (this.dataChannel && this.dataChannel.readyState === 'open') {
-                    this.dataChannel.send(JSON.stringify(data));
-                    return true;
-                }
-                return false;
-            }
-
-            disconnect() {
-                if (this.dataChannel) {
-                    this.dataChannel.close();
-                }
-                if (this.peerConnection) {
-                    this.peerConnection.close();
-                }
-                this.isConnected = false;
-                this.roomId = null;
-                if (this.onConnectionChange) {
-                    this.onConnectionChange(false);
-                }
+                    
+                    clearGroups.onerror = () => reject(clearGroups.error);
+                });
             }
         }
 
@@ -948,37 +765,19 @@
         class TaskManagerApp {
             constructor() {
                 this.db = new TaskManagerDB();
-                this.webrtc = new WebRTCSync();
                 this.groups = [];
                 this.tasks = [];
                 this.currentGroupId = 1; // "My Tasks" group
                 this.currentTaskId = null;
                 this.timers = new Map(); // Store active timers
-                this.isSyncing = false;
                 this.init();
             }
 
             async init() {
                 await this.db.init();
                 await this.loadInitialData();
-                this.setupWebRTC();
                 this.render();
                 this.setupEventListeners();
-            }
-
-            setupWebRTC() {
-                this.webrtc.onDataReceived = (data) => {
-                    this.handleIncomingData(data);
-                };
-
-                this.webrtc.onConnectionChange = (connected) => {
-                    this.updateSyncStatus(connected ? 'connected' : 'disconnected');
-                    document.getElementById('disconnect').disabled = !connected;
-                    if (connected) {
-                        // Send current data to new peer
-                        this.sendFullSync();
-                    }
-                };
             }
 
             async loadInitialData() {
@@ -1020,68 +819,85 @@
                 });
 
                 // Sync buttons
-                document.getElementById('create-room').addEventListener('click', () => this.createRoom());
-                document.getElementById('join-room').addEventListener('click', () => this.showJoinModal());
-                document.getElementById('disconnect').addEventListener('click', () => this.disconnect());
+                document.getElementById('export-data').addEventListener('click', () => this.exportData());
+                document.getElementById('import-data').addEventListener('click', () => this.importData());
 
-                // Modal events
-                document.getElementById('cancel-join').addEventListener('click', () => this.hideModal());
-                document.getElementById('confirm-join').addEventListener('click', () => this.joinRoom());
-                document.getElementById('room-code').addEventListener('keypress', (e) => {
-                    if (e.key === 'Enter') this.joinRoom();
-                });
+                // File input
+                document.getElementById('file-input').addEventListener('change', (e) => this.handleFileSelect(e));
             }
 
-            createRoom() {
-                this.webrtc.createRoom().then(roomId => {
-                    document.getElementById('room-id').textContent = roomId;
-                    document.getElementById('room-info').style.display = 'block';
-                    this.updateSyncStatus('syncing');
-                });
-            }
-
-            showJoinModal() {
-                document.getElementById('join-modal').classList.remove('hidden');
-                document.getElementById('room-code').focus();
-            }
-
-            hideModal() {
-                document.getElementById('join-modal').classList.add('hidden');
-                document.getElementById('room-code').value = '';
-            }
-
-            joinRoom() {
-                const roomCode = document.getElementById('room-code').value.trim();
-                if (roomCode) {
-                    this.webrtc.joinRoom(roomCode);
-                    this.hideModal();
-                    document.getElementById('room-id').textContent = roomCode.toUpperCase();
-                    document.getElementById('room-info').style.display = 'block';
-                    this.updateSyncStatus('syncing');
+            async exportData() {
+                try {
+                    const data = await this.db.exportData();
+                    const jsonData = JSON.stringify(data, null, 2);
+                    const blob = new Blob([jsonData], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `taskmanager-export-${new Date().toISOString().split('T')[0]}.json`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                    
+                    this.showStatus('Данные успешно экспортированы', 'success');
+                } catch (error) {
+                    this.showStatus('Ошибка при экспорте данных: ' + error.message, 'error');
                 }
             }
 
-            disconnect() {
-                this.webrtc.disconnect();
-                document.getElementById('room-info').style.display = 'none';
-                document.getElementById('room-id').textContent = '';
-                this.updateSyncStatus('disconnected');
+            importData() {
+                document.getElementById('file-input').click();
             }
 
-            updateSyncStatus(status) {
+            handleFileSelect(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = async (e) => {
+                    try {
+                        const data = JSON.parse(e.target.result);
+                        await this.importDataFromFile(data);
+                    } catch (error) {
+                        this.showStatus('Ошибка при чтении файла: ' + error.message, 'error');
+                    }
+                };
+                reader.readAsText(file);
+                event.target.value = ''; // Reset file input
+            }
+
+            async importDataFromFile(data) {
+                if (!confirm('Вы уверены, что хотите импортировать данные? Это заменит все текущие данные.')) {
+                    return;
+                }
+
+                try {
+                    this.showStatus('Импорт данных...', 'info');
+                    await this.db.importData(data);
+                    
+                    // Reload data
+                    await this.loadInitialData();
+                    this.render();
+                    
+                    this.showStatus('Данные успешно импортированы', 'success');
+                } catch (error) {
+                    this.showStatus('Ошибка при импорте данных: ' + error.message, 'error');
+                }
+            }
+
+            showStatus(message, type) {
                 const statusElement = document.getElementById('sync-status');
-                statusElement.className = `status ${status}`;
+                statusElement.className = `status ${type}`;
+                statusElement.textContent = message;
                 
-                switch (status) {
-                    case 'connected':
-                        statusElement.textContent = 'Подключено к синхронизации';
-                        break;
-                    case 'disconnected':
-                        statusElement.textContent = 'Отключено от синхронизации';
-                        break;
-                    case 'syncing':
-                        statusElement.textContent = 'Синхронизация...';
-                        break;
+                // Auto hide success message after 3 seconds
+                if (type === 'success') {
+                    setTimeout(() => {
+                        statusElement.className = 'status info';
+                        statusElement.textContent = 'Используйте экспорт для сохранения данных и импорт для восстановления';
+                    }, 3000);
                 }
             }
 
@@ -1104,7 +920,6 @@
                         newTask.id = id;
                         this.tasks.push(newTask);
                         this.renderTaskList();
-                        this.sendSyncMessage({ type: 'task_added', task: newTask });
                     });
                 }
             }
@@ -1126,7 +941,6 @@
                         this.groups.push(newGroup);
                         nameInput.value = '';
                         this.render();
-                        this.sendSyncMessage({ type: 'group_added', group: newGroup });
                     });
                 }
             }
@@ -1144,121 +958,8 @@
                             this.currentGroupId = 1;
                         }
                         this.render();
-                        this.sendSyncMessage({ type: 'group_deleted', groupId: id });
                     });
                 }
-            }
-
-            handleIncomingData(data) {
-                if (this.isSyncing) return;
-                
-                this.isSyncing = true;
-                console.log('Received sync data:', data);
-                
-                switch (data.type) {
-                    case 'full_sync':
-                        this.handleFullSync(data);
-                        break;
-                    case 'task_added':
-                        this.handleTaskAdded(data.task);
-                        break;
-                    case 'task_updated':
-                        this.handleTaskUpdated(data.task);
-                        break;
-                    case 'task_deleted':
-                        this.handleTaskDeleted(data.taskId);
-                        break;
-                    case 'group_added':
-                        this.handleGroupAdded(data.group);
-                        break;
-                    case 'group_updated':
-                        this.handleGroupUpdated(data.group);
-                        break;
-                    case 'group_deleted':
-                        this.handleGroupDeleted(data.groupId);
-                        break;
-                }
-                
-                setTimeout(() => {
-                    this.isSyncing = false;
-                }, 100);
-            }
-
-            async handleFullSync(data) {
-                // Update local data with received data
-                this.groups = data.groups;
-                this.tasks = data.tasks;
-                this.currentGroupId = data.currentGroupId || 1;
-                
-                // Save to local database
-                // Note: In a real implementation, you'd want to be more careful about overwriting
-                this.render();
-            }
-
-            handleTaskAdded(task) {
-                if (!this.tasks.find(t => t.id === task.id)) {
-                    this.tasks.push(task);
-                    if (this.currentGroupId === task.groupId || this.currentGroupId === 'archived') {
-                        this.renderTaskList();
-                    }
-                }
-            }
-
-            handleTaskUpdated(task) {
-                const index = this.tasks.findIndex(t => t.id === task.id);
-                if (index !== -1) {
-                    this.tasks[index] = task;
-                    if (this.currentGroupId === task.groupId || this.currentGroupId === 'archived') {
-                        this.renderTaskList();
-                    }
-                }
-            }
-
-            handleTaskDeleted(taskId) {
-                this.tasks = this.tasks.filter(t => t.id !== taskId);
-                this.renderTaskList();
-            }
-
-            handleGroupAdded(group) {
-                if (!this.groups.find(g => g.id === group.id)) {
-                    this.groups.push(group);
-                    this.render();
-                }
-            }
-
-            handleGroupUpdated(group) {
-                const index = this.groups.findIndex(g => g.id === group.id);
-                if (index !== -1) {
-                    this.groups[index] = group;
-                    this.render();
-                }
-            }
-
-            handleGroupDeleted(groupId) {
-                this.groups = this.groups.filter(g => g.id !== groupId);
-                this.tasks = this.tasks.map(task => 
-                    task.groupId === groupId ? { ...task, groupId: 1 } : task
-                );
-                if (this.currentGroupId === groupId) {
-                    this.currentGroupId = 1;
-                }
-                this.render();
-            }
-
-            sendSyncMessage(data) {
-                if (this.webrtc.isConnected) {
-                    this.webrtc.sendData(data);
-                }
-            }
-
-            sendFullSync() {
-                const syncData = {
-                    type: 'full_sync',
-                    groups: this.groups,
-                    tasks: this.tasks,
-                    currentGroupId: this.currentGroupId
-                };
-                this.sendSyncMessage(syncData);
             }
 
             render() {
@@ -1403,7 +1104,6 @@
                             task.completed = e.target.checked;
                             this.db.updateTask(taskId, task);
                             this.renderTaskList();
-                            this.sendSyncMessage({ type: 'task_updated', task });
                         }
                     });
                 });
@@ -1417,7 +1117,6 @@
                             task.archived = e.target.checked;
                             this.db.updateTask(taskId, task);
                             this.renderTaskList();
-                            this.sendSyncMessage({ type: 'task_updated', task });
                         }
                     });
                 });
@@ -1478,7 +1177,6 @@
                 
                 this.db.updateTask(taskId, task);
                 this.renderTaskList();
-                this.sendSyncMessage({ type: 'task_updated', task });
             }
 
             showTaskDetail(taskId) {
@@ -1523,13 +1221,11 @@
                 document.getElementById('detail-complete').addEventListener('change', (e) => {
                     task.completed = e.target.checked;
                     this.db.updateTask(taskId, task);
-                    this.sendSyncMessage({ type: 'task_updated', task });
                 });
                 
                 document.getElementById('detail-archive').addEventListener('change', (e) => {
                     task.archived = e.target.checked;
                     this.db.updateTask(taskId, task);
-                    this.sendSyncMessage({ type: 'task_updated', task });
                 });
                 
                 document.getElementById('edit-task').addEventListener('click', () => this.showEditForm(task));
@@ -1567,7 +1263,6 @@
                 task.groupId = parseInt(document.getElementById('edit-group').value);
                 
                 this.db.updateTask(taskId, task).then(() => {
-                    this.sendSyncMessage({ type: 'task_updated', task });
                     this.showTaskDetail(taskId);
                 });
             }
@@ -1576,7 +1271,6 @@
                 if (confirm('Вы уверены, что хотите удалить эту задачу?')) {
                     this.db.deleteTask(taskId).then(() => {
                         this.tasks = this.tasks.filter(task => task.id !== taskId);
-                        this.sendSyncMessage({ type: 'task_deleted', taskId });
                         this.showMainView();
                     });
                 }
