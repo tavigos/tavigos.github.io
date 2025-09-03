@@ -1,0 +1,1606 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TaskManager с WebRTC синхронизацией</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background-color: #f5f7fa;
+            color: #333;
+        }
+
+        .app {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        /* Header */
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 20px 0;
+        }
+
+        .header h1 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+
+        /* Sync Panel */
+        .sync-panel {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .sync-controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+
+        .sync-button {
+            padding: 10px 15px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: 600;
+            flex: 1;
+            min-width: 120px;
+        }
+
+        .create-room {
+            background-color: #27ae60;
+            color: white;
+        }
+
+        .join-room {
+            background-color: #3498db;
+            color: white;
+        }
+
+        .disconnect {
+            background-color: #e74c3c;
+            color: white;
+        }
+
+        .room-info {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+        }
+
+        .room-id {
+            font-family: monospace;
+            background-color: #e9ecef;
+            padding: 5px 10px;
+            border-radius: 3px;
+            word-break: break-all;
+        }
+
+        .status {
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 10px;
+            text-align: center;
+        }
+
+        .status.connected {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status.disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .status.syncing {
+            background-color: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+
+        /* Tab Bar */
+        .tab-bar {
+            display: flex;
+            overflow-x: auto;
+            background: white;
+            border-radius: 10px;
+            padding: 5px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .tab {
+            padding: 12px 20px;
+            cursor: pointer;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+            white-space: nowrap;
+            margin-right: 5px;
+        }
+
+        .tab:hover {
+            background-color: #f8f9fa;
+        }
+
+        .tab.active {
+            background-color: #3498db;
+            color: white;
+        }
+
+        .tab.archived {
+            background-color: #95a5a6;
+            color: white;
+        }
+
+        .tab.my-tasks {
+            background-color: #2c3e50;
+            color: white;
+        }
+
+        /* Task List */
+        .task-list {
+            margin-bottom: 80px;
+        }
+
+        .task-card {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 15px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .task-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+        }
+
+        .task-card.completed {
+            opacity: 0.6;
+        }
+
+        .task-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #2c3e50;
+        }
+
+        .task-description {
+            color: #7f8c8d;
+            margin-bottom: 15px;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        .task-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .checkbox-group {
+            display: flex;
+            gap: 15px;
+        }
+
+        .checkbox-label {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 14px;
+        }
+
+        .timer {
+            font-size: 14px;
+            color: #e74c3c;
+            font-weight: 600;
+        }
+
+        .timer-button {
+            padding: 5px 10px;
+            border: none;
+            border-radius: 5px;
+            background-color: #3498db;
+            color: white;
+            cursor: pointer;
+            font-size: 12px;
+            margin-left: 10px;
+        }
+
+        .timer-button.stop {
+            background-color: #e74c3c;
+        }
+
+        /* Add Task Form */
+        .add-task-form {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: white;
+            padding: 20px;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+            border-top: 1px solid #eee;
+        }
+
+        .form-container {
+            max-width: 800px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 10px;
+        }
+
+        .form-input {
+            padding: 12px 15px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: #3498db;
+        }
+
+        .add-button {
+            padding: 12px 25px;
+            background-color: #27ae60;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .add-button:hover {
+            background-color: #219a52;
+        }
+
+        /* Task Detail */
+        .task-detail {
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        }
+
+        .task-detail-title {
+            font-size: 24px;
+            margin-bottom: 20px;
+            color: #2c3e50;
+        }
+
+        .task-detail-description {
+            color: #7f8c8d;
+            line-height: 1.6;
+            margin-bottom: 30px;
+            min-height: 100px;
+        }
+
+        .detail-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .detail-checkbox-group {
+            display: flex;
+            gap: 20px;
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 10px;
+        }
+
+        .edit-button {
+            padding: 10px 20px;
+            background-color: #f39c12;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        .delete-button {
+            padding: 10px 20px;
+            background-color: #e74c3c;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        .back-button {
+            padding: 10px 20px;
+            background-color: #95a5a6;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-bottom: 20px;
+        }
+
+        /* Edit Form */
+        .edit-form {
+            display: grid;
+            gap: 15px;
+        }
+
+        .edit-input, .edit-textarea, .edit-select {
+            padding: 12px 15px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+        }
+
+        .edit-textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+
+        .save-button {
+            padding: 12px 25px;
+            background-color: #27ae60;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        /* Hidden class */
+        .hidden {
+            display: none;
+        }
+
+        /* Group Management */
+        .group-management {
+            margin-bottom: 20px;
+            padding: 20px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .group-form {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .group-input {
+            flex: 1;
+            padding: 10px 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+
+        .color-picker {
+            width: 50px;
+            height: 40px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        .add-group-button {
+            padding: 10px 20px;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        .groups-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .group-item {
+            display: flex;
+            align-items: center;
+            padding: 8px 15px;
+            background-color: #f8f9fa;
+            border-radius: 20px;
+            font-size: 14px;
+        }
+
+        .group-color {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .delete-group {
+            margin-left: 8px;
+            color: #e74c3c;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        /* Empty state */
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: #95a5a6;
+        }
+
+        .empty-state p {
+            margin-top: 10px;
+        }
+
+        /* Modal */
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            max-width: 500px;
+            width: 90%;
+        }
+
+        .modal-title {
+            margin-bottom: 20px;
+            color: #2c3e50;
+        }
+
+        .modal-input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            font-size: 16px;
+        }
+
+        .modal-buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+
+        .modal-button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        .modal-cancel {
+            background-color: #95a5a6;
+            color: white;
+        }
+
+        .modal-ok {
+            background-color: #3498db;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <div class="header">
+            <h1>TaskManager</h1>
+            <p>Управляйте своими задачами эффективно</p>
+        </div>
+
+        <!-- Sync Panel -->
+        <div class="sync-panel">
+            <h3>WebRTC Синхронизация</h3>
+            <div class="sync-controls">
+                <button class="sync-button create-room" id="create-room">Создать комнату</button>
+                <button class="sync-button join-room" id="join-room">Присоединиться</button>
+                <button class="sync-button disconnect" id="disconnect" disabled>Отключиться</button>
+            </div>
+            <div class="room-info" id="room-info" style="display: none;">
+                <p>Код комнаты: <span class="room-id" id="room-id"></span></p>
+                <p>Подключенные устройства: <span id="peer-count">0</span></p>
+            </div>
+            <div class="status disconnected" id="sync-status">
+                Отключено от синхронизации
+            </div>
+        </div>
+
+        <!-- Group Management -->
+        <div class="group-management">
+            <h3>Управление группами</h3>
+            <div class="group-form">
+                <input type="text" class="group-input" id="group-name" placeholder="Название группы">
+                <input type="color" class="color-picker" id="group-color" value="#3498db">
+                <button class="add-group-button" id="add-group">Добавить группу</button>
+            </div>
+            <div class="groups-list" id="groups-list"></div>
+        </div>
+
+        <!-- Main View -->
+        <div id="main-view">
+            <div class="tab-bar" id="tab-bar"></div>
+            <div class="task-list" id="task-list"></div>
+        </div>
+
+        <!-- Task Detail View -->
+        <div id="task-detail-view" class="hidden">
+            <button class="back-button" id="back-button">← Назад</button>
+            <div class="task-detail" id="task-detail"></div>
+        </div>
+
+        <!-- Add Task Form -->
+        <div class="add-task-form">
+            <div class="form-container">
+                <input type="text" class="form-input" id="new-task-title" placeholder="Введите название задачи">
+                <button class="add-button" id="add-task">Добавить</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Join Room Modal -->
+    <div class="modal hidden" id="join-modal">
+        <div class="modal-content">
+            <h3 class="modal-title">Присоединиться к комнате</h3>
+            <input type="text" class="modal-input" id="room-code" placeholder="Введите код комнаты">
+            <div class="modal-buttons">
+                <button class="modal-button modal-cancel" id="cancel-join">Отмена</button>
+                <button class="modal-button modal-ok" id="confirm-join">Присоединиться</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Database setup
+        class TaskManagerDB {
+            constructor() {
+                this.db = null;
+                this.dbName = 'TaskManagerDB';
+                this.version = 1;
+            }
+
+            async init() {
+                return new Promise((resolve, reject) => {
+                    const request = indexedDB.open(this.dbName, this.version);
+                    
+                    request.onerror = () => reject(request.error);
+                    request.onsuccess = () => {
+                        this.db = request.result;
+                        resolve();
+                    };
+                    
+                    request.onupgradeneeded = (event) => {
+                        const db = event.target.result;
+                        
+                        // Create groups store
+                        if (!db.objectStoreNames.contains('groups')) {
+                            const groupsStore = db.createObjectStore('groups', { keyPath: 'id', autoIncrement: true });
+                            groupsStore.createIndex('name', 'name', { unique: false });
+                        }
+                        
+                        // Create tasks store
+                        if (!db.objectStoreNames.contains('tasks')) {
+                            const tasksStore = db.createObjectStore('tasks', { keyPath: 'id', autoIncrement: true });
+                            tasksStore.createIndex('groupId', 'groupId', { unique: false });
+                            tasksStore.createIndex('completed', 'completed', { unique: false });
+                            tasksStore.createIndex('archived', 'archived', { unique: false });
+                        }
+                    };
+                });
+            }
+
+            // Groups methods
+            async getGroups() {
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction(['groups'], 'readonly');
+                    const store = transaction.objectStore('groups');
+                    const request = store.getAll();
+                    
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = () => reject(request.error);
+                });
+            }
+
+            async addGroup(group) {
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction(['groups'], 'readwrite');
+                    const store = transaction.objectStore('groups');
+                    const request = store.add(group);
+                    
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = () => reject(request.error);
+                });
+            }
+
+            async updateGroup(id, group) {
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction(['groups'], 'readwrite');
+                    const store = transaction.objectStore('groups');
+                    const request = store.put({ ...group, id });
+                    
+                    request.onsuccess = () => resolve();
+                    request.onerror = () => reject(request.error);
+                });
+            }
+
+            async deleteGroup(id) {
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction(['groups', 'tasks'], 'readwrite');
+                    const groupsStore = transaction.objectStore('groups');
+                    const tasksStore = transaction.objectStore('tasks');
+                    
+                    // Delete group
+                    const deleteGroupRequest = groupsStore.delete(id);
+                    
+                    deleteGroupRequest.onsuccess = () => {
+                        // Move all tasks from this group to "My Tasks" (groupId = 1)
+                        const getAllTasksRequest = tasksStore.index('groupId').getAll(IDBKeyRange.only(id));
+                        
+                        getAllTasksRequest.onsuccess = () => {
+                            const tasks = getAllTasksRequest.result;
+                            const updatePromises = tasks.map(task => {
+                                return new Promise((resolve, updateReject) => {
+                                    const updateRequest = tasksStore.put({ ...task, groupId: 1 });
+                                    updateRequest.onsuccess = () => resolve();
+                                    updateRequest.onerror = () => updateReject(updateRequest.error);
+                                });
+                            });
+                            
+                            Promise.all(updatePromises).then(() => resolve()).catch(reject);
+                        };
+                        
+                        getAllTasksRequest.onerror = () => reject(getAllTasksRequest.error);
+                    };
+                    
+                    deleteGroupRequest.onerror = () => reject(deleteGroupRequest.error);
+                });
+            }
+
+            // Tasks methods
+            async getTasks() {
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction(['tasks'], 'readonly');
+                    const store = transaction.objectStore('tasks');
+                    const request = store.getAll();
+                    
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = () => reject(request.error);
+                });
+            }
+
+            async addTask(task) {
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction(['tasks'], 'readwrite');
+                    const store = transaction.objectStore('tasks');
+                    const request = store.add(task);
+                    
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = () => reject(request.error);
+                });
+            }
+
+            async updateTask(id, task) {
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction(['tasks'], 'readwrite');
+                    const store = transaction.objectStore('tasks');
+                    const request = store.put({ ...task, id });
+                    
+                    request.onsuccess = () => resolve();
+                    request.onerror = () => reject(request.error);
+                });
+            }
+
+            async deleteTask(id) {
+                return new Promise((resolve, reject) => {
+                    const transaction = this.db.transaction(['tasks'], 'readwrite');
+                    const store = transaction.objectStore('tasks');
+                    const request = store.delete(id);
+                    
+                    request.onsuccess = () => resolve();
+                    request.onerror = () => reject(request.error);
+                });
+            }
+        }
+
+        // WebRTC Sync Class
+        class WebRTCSync {
+            constructor() {
+                this.peerConnection = null;
+                this.dataChannel = null;
+                this.peerId = this.generatePeerId();
+                this.roomId = null;
+                this.peers = new Map();
+                this.isConnected = false;
+                this.onDataReceived = null;
+                this.onConnectionChange = null;
+            }
+
+            generatePeerId() {
+                return 'peer_' + Math.random().toString(36).substr(2, 9);
+            }
+
+            generateRoomId() {
+                return Math.random().toString(36).substr(2, 6).toUpperCase();
+            }
+
+            async createRoom() {
+                this.roomId = this.generateRoomId();
+                await this.setupPeerConnection(true);
+                return this.roomId;
+            }
+
+            async joinRoom(roomId) {
+                this.roomId = roomId.toUpperCase();
+                await this.setupPeerConnection(false);
+            }
+
+            async setupPeerConnection(isInitiator) {
+                // Simple signaling using localStorage for demo purposes
+                // In production, you would use a proper signaling server
+                this.peerConnection = new RTCPeerConnection({
+                    iceServers: [
+                        { urls: 'stun:stun.l.google.com:19302' },
+                        { urls: 'stun:stun1.l.google.com:19302' }
+                    ]
+                });
+
+                if (isInitiator) {
+                    this.dataChannel = this.peerConnection.createDataChannel('tasks', {
+                        ordered: true
+                    });
+                    this.setupDataChannel(this.dataChannel);
+                } else {
+                    this.peerConnection.ondatachannel = (event) => {
+                        this.dataChannel = event.channel;
+                        this.setupDataChannel(this.dataChannel);
+                    };
+                }
+
+                this.peerConnection.onicecandidate = (event) => {
+                    if (event.candidate) {
+                        this.sendSignal({
+                            type: 'ice-candidate',
+                            candidate: event.candidate,
+                            from: this.peerId
+                        });
+                    }
+                };
+
+                this.peerConnection.onconnectionstatechange = () => {
+                    console.log('Connection state:', this.peerConnection.connectionState);
+                    if (this.peerConnection.connectionState === 'connected') {
+                        this.isConnected = true;
+                        if (this.onConnectionChange) {
+                            this.onConnectionChange(true);
+                        }
+                    } else if (this.peerConnection.connectionState === 'disconnected' || 
+                               this.peerConnection.connectionState === 'failed') {
+                        this.isConnected = false;
+                        if (this.onConnectionChange) {
+                            this.onConnectionChange(false);
+                        }
+                    }
+                };
+
+                // Start signaling
+                this.setupSignaling();
+
+                if (isInitiator) {
+                    const offer = await this.peerConnection.createOffer();
+                    await this.peerConnection.setLocalDescription(offer);
+                    this.sendSignal({
+                        type: 'offer',
+                        offer: offer,
+                        from: this.peerId
+                    });
+                }
+            }
+
+            setupDataChannel(channel) {
+                channel.onopen = () => {
+                    console.log('Data channel opened');
+                    this.isConnected = true;
+                    if (this.onConnectionChange) {
+                        this.onConnectionChange(true);
+                    }
+                };
+
+                channel.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        if (this.onDataReceived) {
+                            this.onDataReceived(data);
+                        }
+                    } catch (e) {
+                        console.error('Error parsing message:', e);
+                    }
+                };
+
+                channel.onclose = () => {
+                    console.log('Data channel closed');
+                    this.isConnected = false;
+                    if (this.onConnectionChange) {
+                        this.onConnectionChange(false);
+                    }
+                };
+            }
+
+            setupSignaling() {
+                // Listen for signaling messages
+                const signalingKey = `taskmanager_signaling_${this.roomId}`;
+                const handleStorageChange = (e) => {
+                    if (e.key === signalingKey && e.newValue) {
+                        try {
+                            const message = JSON.parse(e.newValue);
+                            if (message.to === this.peerId || !message.to) {
+                                this.handleSignal(message);
+                            }
+                        } catch (e) {
+                            console.error('Error parsing signal:', e);
+                        }
+                    }
+                };
+
+                window.addEventListener('storage', handleStorageChange);
+            }
+
+            sendSignal(message) {
+                const signalingKey = `taskmanager_signaling_${this.roomId}`;
+                const signal = {
+                    ...message,
+                    roomId: this.roomId,
+                    timestamp: Date.now()
+                };
+                localStorage.setItem(signalingKey, JSON.stringify(signal));
+            }
+
+            async handleSignal(message) {
+                switch (message.type) {
+                    case 'offer':
+                        if (this.peerConnection.signalingState === 'stable') {
+                            await this.peerConnection.setRemoteDescription(new RTCSessionDescription(message.offer));
+                            const answer = await this.peerConnection.createAnswer();
+                            await this.peerConnection.setLocalDescription(answer);
+                            this.sendSignal({
+                                type: 'answer',
+                                answer: answer,
+                                from: this.peerId,
+                                to: message.from
+                            });
+                        }
+                        break;
+                    case 'answer':
+                        await this.peerConnection.setRemoteDescription(new RTCSessionDescription(message.answer));
+                        break;
+                    case 'ice-candidate':
+                        try {
+                            await this.peerConnection.addIceCandidate(new RTCIceCandidate(message.candidate));
+                        } catch (e) {
+                            console.error('Error adding ICE candidate:', e);
+                        }
+                        break;
+                }
+            }
+
+            sendData(data) {
+                if (this.dataChannel && this.dataChannel.readyState === 'open') {
+                    this.dataChannel.send(JSON.stringify(data));
+                    return true;
+                }
+                return false;
+            }
+
+            disconnect() {
+                if (this.dataChannel) {
+                    this.dataChannel.close();
+                }
+                if (this.peerConnection) {
+                    this.peerConnection.close();
+                }
+                this.isConnected = false;
+                this.roomId = null;
+                if (this.onConnectionChange) {
+                    this.onConnectionChange(false);
+                }
+            }
+        }
+
+        // Main App Class
+        class TaskManagerApp {
+            constructor() {
+                this.db = new TaskManagerDB();
+                this.webrtc = new WebRTCSync();
+                this.groups = [];
+                this.tasks = [];
+                this.currentGroupId = 1; // "My Tasks" group
+                this.currentTaskId = null;
+                this.timers = new Map(); // Store active timers
+                this.isSyncing = false;
+                this.init();
+            }
+
+            async init() {
+                await this.db.init();
+                await this.loadInitialData();
+                this.setupWebRTC();
+                this.render();
+                this.setupEventListeners();
+            }
+
+            setupWebRTC() {
+                this.webrtc.onDataReceived = (data) => {
+                    this.handleIncomingData(data);
+                };
+
+                this.webrtc.onConnectionChange = (connected) => {
+                    this.updateSyncStatus(connected ? 'connected' : 'disconnected');
+                    document.getElementById('disconnect').disabled = !connected;
+                    if (connected) {
+                        // Send current data to new peer
+                        this.sendFullSync();
+                    }
+                };
+            }
+
+            async loadInitialData() {
+                // Load groups
+                this.groups = await this.db.getGroups();
+                
+                // If no groups exist, create default "My Tasks" group
+                if (this.groups.length === 0) {
+                    const myTasksGroup = {
+                        name: 'Мои задачи',
+                        color: '#2c3e50',
+                        isDefault: true
+                    };
+                    const id = await this.db.addGroup(myTasksGroup);
+                    myTasksGroup.id = id;
+                    this.groups.push(myTasksGroup);
+                }
+                
+                // Load tasks
+                this.tasks = await this.db.getTasks();
+            }
+
+            setupEventListeners() {
+                // Add task
+                document.getElementById('add-task').addEventListener('click', () => this.addTask());
+                document.getElementById('new-task-title').addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') this.addTask();
+                });
+
+                // Add group
+                document.getElementById('add-group').addEventListener('click', () => this.addGroup());
+
+                // Back button
+                document.getElementById('back-button').addEventListener('click', () => this.showMainView());
+
+                // Group management
+                document.getElementById('group-name').addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') this.addGroup();
+                });
+
+                // Sync buttons
+                document.getElementById('create-room').addEventListener('click', () => this.createRoom());
+                document.getElementById('join-room').addEventListener('click', () => this.showJoinModal());
+                document.getElementById('disconnect').addEventListener('click', () => this.disconnect());
+
+                // Modal events
+                document.getElementById('cancel-join').addEventListener('click', () => this.hideModal());
+                document.getElementById('confirm-join').addEventListener('click', () => this.joinRoom());
+                document.getElementById('room-code').addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') this.joinRoom();
+                });
+            }
+
+            createRoom() {
+                this.webrtc.createRoom().then(roomId => {
+                    document.getElementById('room-id').textContent = roomId;
+                    document.getElementById('room-info').style.display = 'block';
+                    this.updateSyncStatus('syncing');
+                });
+            }
+
+            showJoinModal() {
+                document.getElementById('join-modal').classList.remove('hidden');
+                document.getElementById('room-code').focus();
+            }
+
+            hideModal() {
+                document.getElementById('join-modal').classList.add('hidden');
+                document.getElementById('room-code').value = '';
+            }
+
+            joinRoom() {
+                const roomCode = document.getElementById('room-code').value.trim();
+                if (roomCode) {
+                    this.webrtc.joinRoom(roomCode);
+                    this.hideModal();
+                    document.getElementById('room-id').textContent = roomCode.toUpperCase();
+                    document.getElementById('room-info').style.display = 'block';
+                    this.updateSyncStatus('syncing');
+                }
+            }
+
+            disconnect() {
+                this.webrtc.disconnect();
+                document.getElementById('room-info').style.display = 'none';
+                document.getElementById('room-id').textContent = '';
+                this.updateSyncStatus('disconnected');
+            }
+
+            updateSyncStatus(status) {
+                const statusElement = document.getElementById('sync-status');
+                statusElement.className = `status ${status}`;
+                
+                switch (status) {
+                    case 'connected':
+                        statusElement.textContent = 'Подключено к синхронизации';
+                        break;
+                    case 'disconnected':
+                        statusElement.textContent = 'Отключено от синхронизации';
+                        break;
+                    case 'syncing':
+                        statusElement.textContent = 'Синхронизация...';
+                        break;
+                }
+            }
+
+            addTask() {
+                const titleInput = document.getElementById('new-task-title');
+                const title = titleInput.value.trim();
+                
+                if (title) {
+                    const newTask = {
+                        title,
+                        description: '',
+                        completed: false,
+                        archived: false,
+                        groupId: this.currentGroupId,
+                        timerSeconds: 0,
+                        createdAt: new Date().toISOString()
+                    };
+                    
+                    this.db.addTask(newTask).then(id => {
+                        newTask.id = id;
+                        this.tasks.push(newTask);
+                        this.renderTaskList();
+                        this.sendSyncMessage({ type: 'task_added', task: newTask });
+                    });
+                }
+            }
+
+            addGroup() {
+                const nameInput = document.getElementById('group-name');
+                const colorInput = document.getElementById('group-color');
+                const name = nameInput.value.trim();
+                
+                if (name) {
+                    const newGroup = {
+                        name,
+                        color: colorInput.value,
+                        isDefault: false
+                    };
+                    
+                    this.db.addGroup(newGroup).then(id => {
+                        newGroup.id = id;
+                        this.groups.push(newGroup);
+                        nameInput.value = '';
+                        this.render();
+                        this.sendSyncMessage({ type: 'group_added', group: newGroup });
+                    });
+                }
+            }
+
+            deleteGroup(id) {
+                if (id === 1) return; // Cannot delete "My Tasks" group
+                
+                if (confirm('Вы уверены, что хотите удалить эту группу? Все задачи будут перемещены в "Мои задачи".')) {
+                    this.db.deleteGroup(id).then(() => {
+                        this.groups = this.groups.filter(group => group.id !== id);
+                        this.tasks = this.tasks.map(task => 
+                            task.groupId === id ? { ...task, groupId: 1 } : task
+                        );
+                        if (this.currentGroupId === id) {
+                            this.currentGroupId = 1;
+                        }
+                        this.render();
+                        this.sendSyncMessage({ type: 'group_deleted', groupId: id });
+                    });
+                }
+            }
+
+            handleIncomingData(data) {
+                if (this.isSyncing) return;
+                
+                this.isSyncing = true;
+                console.log('Received sync data:', data);
+                
+                switch (data.type) {
+                    case 'full_sync':
+                        this.handleFullSync(data);
+                        break;
+                    case 'task_added':
+                        this.handleTaskAdded(data.task);
+                        break;
+                    case 'task_updated':
+                        this.handleTaskUpdated(data.task);
+                        break;
+                    case 'task_deleted':
+                        this.handleTaskDeleted(data.taskId);
+                        break;
+                    case 'group_added':
+                        this.handleGroupAdded(data.group);
+                        break;
+                    case 'group_updated':
+                        this.handleGroupUpdated(data.group);
+                        break;
+                    case 'group_deleted':
+                        this.handleGroupDeleted(data.groupId);
+                        break;
+                }
+                
+                setTimeout(() => {
+                    this.isSyncing = false;
+                }, 100);
+            }
+
+            async handleFullSync(data) {
+                // Update local data with received data
+                this.groups = data.groups;
+                this.tasks = data.tasks;
+                this.currentGroupId = data.currentGroupId || 1;
+                
+                // Save to local database
+                // Note: In a real implementation, you'd want to be more careful about overwriting
+                this.render();
+            }
+
+            handleTaskAdded(task) {
+                if (!this.tasks.find(t => t.id === task.id)) {
+                    this.tasks.push(task);
+                    if (this.currentGroupId === task.groupId || this.currentGroupId === 'archived') {
+                        this.renderTaskList();
+                    }
+                }
+            }
+
+            handleTaskUpdated(task) {
+                const index = this.tasks.findIndex(t => t.id === task.id);
+                if (index !== -1) {
+                    this.tasks[index] = task;
+                    if (this.currentGroupId === task.groupId || this.currentGroupId === 'archived') {
+                        this.renderTaskList();
+                    }
+                }
+            }
+
+            handleTaskDeleted(taskId) {
+                this.tasks = this.tasks.filter(t => t.id !== taskId);
+                this.renderTaskList();
+            }
+
+            handleGroupAdded(group) {
+                if (!this.groups.find(g => g.id === group.id)) {
+                    this.groups.push(group);
+                    this.render();
+                }
+            }
+
+            handleGroupUpdated(group) {
+                const index = this.groups.findIndex(g => g.id === group.id);
+                if (index !== -1) {
+                    this.groups[index] = group;
+                    this.render();
+                }
+            }
+
+            handleGroupDeleted(groupId) {
+                this.groups = this.groups.filter(g => g.id !== groupId);
+                this.tasks = this.tasks.map(task => 
+                    task.groupId === groupId ? { ...task, groupId: 1 } : task
+                );
+                if (this.currentGroupId === groupId) {
+                    this.currentGroupId = 1;
+                }
+                this.render();
+            }
+
+            sendSyncMessage(data) {
+                if (this.webrtc.isConnected) {
+                    this.webrtc.sendData(data);
+                }
+            }
+
+            sendFullSync() {
+                const syncData = {
+                    type: 'full_sync',
+                    groups: this.groups,
+                    tasks: this.tasks,
+                    currentGroupId: this.currentGroupId
+                };
+                this.sendSyncMessage(syncData);
+            }
+
+            render() {
+                this.renderGroups();
+                this.renderTabBar();
+                this.renderTaskList();
+            }
+
+            renderGroups() {
+                const groupsList = document.getElementById('groups-list');
+                groupsList.innerHTML = '';
+                
+                this.groups.forEach(group => {
+                    const groupElement = document.createElement('div');
+                    groupElement.className = 'group-item';
+                    groupElement.innerHTML = `
+                        <div class="group-color" style="background-color: ${group.color}"></div>
+                        ${group.name}
+                        ${!group.isDefault ? `<span class="delete-group" data-id="${group.id}">×</span>` : ''}
+                    `;
+                    groupsList.appendChild(groupElement);
+                });
+                
+                // Add event listeners for delete buttons
+                document.querySelectorAll('.delete-group').forEach(button => {
+                    button.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        const id = parseInt(button.getAttribute('data-id'));
+                        this.deleteGroup(id);
+                    });
+                });
+            }
+
+            renderTabBar() {
+                const tabBar = document.getElementById('tab-bar');
+                tabBar.innerHTML = '';
+                
+                // Add "My Tasks" tab
+                const myTasksTab = document.createElement('div');
+                myTasksTab.className = `tab my-tasks ${this.currentGroupId === 1 ? 'active' : ''}`;
+                myTasksTab.textContent = 'Мои задачи';
+                myTasksTab.addEventListener('click', () => {
+                    this.currentGroupId = 1;
+                    this.renderTabBar();
+                    this.renderTaskList();
+                });
+                tabBar.appendChild(myTasksTab);
+                
+                // Add other groups
+                this.groups.filter(group => group.id !== 1).forEach(group => {
+                    const tab = document.createElement('div');
+                    tab.className = `tab ${this.currentGroupId === group.id ? 'active' : ''}`;
+                    tab.style.backgroundColor = group.color;
+                    tab.style.color = 'white';
+                    tab.textContent = group.name;
+                    tab.addEventListener('click', () => {
+                        this.currentGroupId = group.id;
+                        this.renderTabBar();
+                        this.renderTaskList();
+                    });
+                    tabBar.appendChild(tab);
+                });
+                
+                // Add archived tab
+                const archivedTab = document.createElement('div');
+                archivedTab.className = `tab archived ${this.currentGroupId === 'archived' ? 'active' : ''}`;
+                archivedTab.textContent = 'Архив';
+                archivedTab.addEventListener('click', () => {
+                    this.currentGroupId = 'archived';
+                    this.renderTabBar();
+                    this.renderTaskList();
+                });
+                tabBar.appendChild(archivedTab);
+            }
+
+            renderTaskList() {
+                const taskList = document.getElementById('task-list');
+                
+                let filteredTasks;
+                if (this.currentGroupId === 'archived') {
+                    filteredTasks = this.tasks.filter(task => task.archived);
+                } else {
+                    filteredTasks = this.tasks.filter(task => 
+                        task.groupId === this.currentGroupId && !task.archived
+                    );
+                }
+                
+                if (filteredTasks.length === 0) {
+                    taskList.innerHTML = `
+                        <div class="empty-state">
+                            <h3>Нет задач</h3>
+                            <p>${this.currentGroupId === 'archived' ? 
+                                'В архиве пока нет задач' : 
+                                'Добавьте первую задачу, используя форму внизу страницы'}</p>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                taskList.innerHTML = '';
+                filteredTasks.forEach(task => {
+                    const taskElement = document.createElement('div');
+                    taskElement.className = `task-card ${task.completed ? 'completed' : ''}`;
+                    taskElement.innerHTML = `
+                        <div class="task-title">${task.title}</div>
+                        <div class="task-description">${task.description || 'Нет описания'}</div>
+                        <div class="task-controls">
+                            <div class="checkbox-group">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" ${task.completed ? 'checked' : ''} data-id="${task.id}" class="complete-checkbox">
+                                    Выполнено
+                                </label>
+                                <label class="checkbox-label">
+                                    <input type="checkbox" ${task.archived ? 'checked' : ''} data-id="${task.id}" class="archive-checkbox">
+                                    В архив
+                                </label>
+                            </div>
+                            <div class="timer">
+                                ${this.formatTime(task.timerSeconds)}
+                                <button class="timer-button ${this.timers.has(task.id) ? 'stop' : ''}" 
+                                        data-id="${task.id}" 
+                                        data-action="${this.timers.has(task.id) ? 'stop' : 'start'}">
+                                    ${this.timers.has(task.id) ? 'Стоп' : 'Старт'}
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                    taskList.appendChild(taskElement);
+                });
+                
+                // Add event listeners
+                this.setupTaskEventListeners();
+            }
+
+            setupTaskEventListeners() {
+                // Complete checkboxes
+                document.querySelectorAll('.complete-checkbox').forEach(checkbox => {
+                    checkbox.addEventListener('change', (e) => {
+                        const taskId = parseInt(e.target.getAttribute('data-id'));
+                        const task = this.tasks.find(t => t.id === taskId);
+                        if (task) {
+                            task.completed = e.target.checked;
+                            this.db.updateTask(taskId, task);
+                            this.renderTaskList();
+                            this.sendSyncMessage({ type: 'task_updated', task });
+                        }
+                    });
+                });
+                
+                // Archive checkboxes
+                document.querySelectorAll('.archive-checkbox').forEach(checkbox => {
+                    checkbox.addEventListener('change', (e) => {
+                        const taskId = parseInt(e.target.getAttribute('data-id'));
+                        const task = this.tasks.find(t => t.id === taskId);
+                        if (task) {
+                            task.archived = e.target.checked;
+                            this.db.updateTask(taskId, task);
+                            this.renderTaskList();
+                            this.sendSyncMessage({ type: 'task_updated', task });
+                        }
+                    });
+                });
+                
+                // Timer buttons
+                document.querySelectorAll('.timer-button').forEach(button => {
+                    button.addEventListener('click', (e) => {
+                        const taskId = parseInt(e.target.getAttribute('data-id'));
+                        const action = e.target.getAttribute('data-action');
+                        this.toggleTimer(taskId, action);
+                    });
+                });
+                
+                // Task cards click
+                document.querySelectorAll('.task-card').forEach((card, index) => {
+                    card.addEventListener('click', (e) => {
+                        if (!e.target.classList.contains('complete-checkbox') && 
+                            !e.target.classList.contains('archive-checkbox') && 
+                            !e.target.classList.contains('timer-button')) {
+                            const filteredTasks = this.currentGroupId === 'archived' ? 
+                                this.tasks.filter(task => task.archived) : 
+                                this.tasks.filter(task => task.groupId === this.currentGroupId && !task.archived);
+                            const task = filteredTasks[index];
+                            if (task) {
+                                this.showTaskDetail(task.id);
+                            }
+                        }
+                    });
+                });
+            }
+
+            toggleTimer(taskId, action) {
+                const task = this.tasks.find(t => t.id === taskId);
+                if (!task) return;
+                
+                if (action === 'start') {
+                    // Stop any existing timers
+                    this.timers.forEach((interval, id) => {
+                        clearInterval(interval);
+                        this.timers.delete(id);
+                    });
+                    
+                    // Start new timer
+                    const interval = setInterval(() => {
+                        task.timerSeconds++;
+                        this.renderTaskList();
+                    }, 1000);
+                    
+                    this.timers.set(taskId, interval);
+                } else {
+                    // Stop timer
+                    const interval = this.timers.get(taskId);
+                    if (interval) {
+                        clearInterval(interval);
+                        this.timers.delete(taskId);
+                    }
+                }
+                
+                this.db.updateTask(taskId, task);
+                this.renderTaskList();
+                this.sendSyncMessage({ type: 'task_updated', task });
+            }
+
+            showTaskDetail(taskId) {
+                this.currentTaskId = taskId;
+                const task = this.tasks.find(t => t.id === taskId);
+                if (!task) return;
+                
+                document.getElementById('main-view').classList.add('hidden');
+                document.getElementById('task-detail-view').classList.remove('hidden');
+                
+                const taskDetail = document.getElementById('task-detail');
+                const group = this.groups.find(g => g.id === task.groupId) || this.groups[0];
+                
+                taskDetail.innerHTML = `
+                    <h2 class="task-detail-title">${task.title}</h2>
+                    <div class="task-detail-description">${task.description || 'Нет описания'}</div>
+                    
+                    <div class="detail-controls">
+                        <div class="detail-checkbox-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" ${task.completed ? 'checked' : ''} id="detail-complete">
+                                Выполнено
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" ${task.archived ? 'checked' : ''} id="detail-archive">
+                                В архив
+                            </label>
+                            <span>Группа: <span style="color: ${group.color}">${group.name}</span></span>
+                        </div>
+                        <div class="timer">
+                            Таймер: ${this.formatTime(task.timerSeconds)}
+                        </div>
+                    </div>
+                    
+                    <div class="action-buttons">
+                        <button class="edit-button" id="edit-task">Редактировать</button>
+                        <button class="delete-button" id="delete-task">Удалить</button>
+                    </div>
+                `;
+                
+                // Setup event listeners for detail view
+                document.getElementById('detail-complete').addEventListener('change', (e) => {
+                    task.completed = e.target.checked;
+                    this.db.updateTask(taskId, task);
+                    this.sendSyncMessage({ type: 'task_updated', task });
+                });
+                
+                document.getElementById('detail-archive').addEventListener('change', (e) => {
+                    task.archived = e.target.checked;
+                    this.db.updateTask(taskId, task);
+                    this.sendSyncMessage({ type: 'task_updated', task });
+                });
+                
+                document.getElementById('edit-task').addEventListener('click', () => this.showEditForm(task));
+                document.getElementById('delete-task').addEventListener('click', () => this.deleteTask(taskId));
+            }
+
+            showEditForm(task) {
+                const taskDetail = document.getElementById('task-detail');
+                const groupOptions = this.groups.map(group => 
+                    `<option value="${group.id}" ${task.groupId === group.id ? 'selected' : ''}>${group.name}</option>`
+                ).join('');
+                
+                taskDetail.innerHTML = `
+                    <h2 class="task-detail-title">Редактировать задачу</h2>
+                    <form class="edit-form" id="edit-task-form">
+                        <input type="text" class="edit-input" id="edit-title" value="${task.title}" placeholder="Название задачи">
+                        <textarea class="edit-textarea" id="edit-description" placeholder="Описание задачи">${task.description || ''}</textarea>
+                        <select class="edit-select" id="edit-group">${groupOptions}</select>
+                        <button type="submit" class="save-button">Сохранить</button>
+                    </form>
+                `;
+                
+                document.getElementById('edit-task-form').addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    this.saveTask(task.id);
+                });
+            }
+
+            saveTask(taskId) {
+                const task = this.tasks.find(t => t.id === taskId);
+                if (!task) return;
+                
+                task.title = document.getElementById('edit-title').value;
+                task.description = document.getElementById('edit-description').value;
+                task.groupId = parseInt(document.getElementById('edit-group').value);
+                
+                this.db.updateTask(taskId, task).then(() => {
+                    this.sendSyncMessage({ type: 'task_updated', task });
+                    this.showTaskDetail(taskId);
+                });
+            }
+
+            deleteTask(taskId) {
+                if (confirm('Вы уверены, что хотите удалить эту задачу?')) {
+                    this.db.deleteTask(taskId).then(() => {
+                        this.tasks = this.tasks.filter(task => task.id !== taskId);
+                        this.sendSyncMessage({ type: 'task_deleted', taskId });
+                        this.showMainView();
+                    });
+                }
+            }
+
+            showMainView() {
+                document.getElementById('task-detail-view').classList.add('hidden');
+                document.getElementById('main-view').classList.remove('hidden');
+                this.currentTaskId = null;
+            }
+
+            formatTime(seconds) {
+                const hrs = Math.floor(seconds / 3600);
+                const mins = Math.floor((seconds % 3600) / 60);
+                const secs = seconds % 60;
+                
+                return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+            }
+        }
+
+        // Initialize app when DOM is loaded
+        document.addEventListener('DOMContentLoaded', () => {
+            new TaskManagerApp();
+        });
+    </script>
+</body>
+</html>
